@@ -1,0 +1,4 @@
+json_files/
+venv/
+mongodb/
+*.pyc
