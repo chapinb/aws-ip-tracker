@@ -102,19 +102,6 @@ class ParseIPs(object):
         else:
             looper = json_data.get("prefixes", [])
 
-        # Sample Record
-        {
-            # Lookup attributes
-            "first_ip": "10.10.10.0",
-            "last_ip": "10.10.10.255",
-            "cidr": "10.10.10.0/16",
-            "events": [
-                # Recorded events
-                {"record_created": "", "record_collected": "",
-                 "region": "", "service": ""}
-            ]
-        }
-
         records = []
         for prefix in looper:
             event = {
@@ -165,9 +152,7 @@ class QueryIP(object):
                                           'last_ip': { '$gte': ip_as_int }})
         events = []
         if matching_posts.count() > 0:
-            # Build record out
-            # consider reducing number of events using the "record_created"
-            # value
+            # TODO consider reducing number of events using "record_created"
             for post_data in matching_posts:
                 post_events = post_data.get("events", [])
                 for evt in post_events:
