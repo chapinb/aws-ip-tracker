@@ -32,8 +32,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 """
 
 __author__ = "Chapin Bryce"
-__date__ = 20170918
+__date__ = 20171002
 __description__ = "Utility to read AWS IP Address mappings into MongoDB"
+
+
+class IPNotFound(Warning):
+    """Warning for when an IP address queried is not found"""
+    pass
 
 
 class ParseIPs(object):
@@ -41,20 +46,20 @@ class ParseIPs(object):
         self.tqdm = kwargs.get('tqdm', False)
         self.host = kwargs.get('host', 'localhost')
         self.port = kwargs.get('port', 27017)
+        self.mongo = MongoClient(self.host, self.port)
+        self.db = self.mongo.IPTracker
+        self.posts = self.db.aws_ip_ranges
 
     def parse(self, json_file):
         # Include DB support here
-        mongo = MongoClient(self.host, self.port)
-        db = mongo.IPTracker
-        posts = db.aws_ip_ranges
 
         records = self.parse_ips._parse_json_file(json_file)
         if self.tqdm:
-            looper = tqdm(records))
+            looper = tqdm(records)
         else:
             looper = records
         for rec in looper:
-            matching_posts = posts.find({'first_ip': rec['first_ip'],
+            matching_posts = self.posts.find({'first_ip': rec['first_ip'],
                                          'last_ip': rec['last_ip'],
                                          'cidr': rec['cidr']})
 
@@ -62,7 +67,7 @@ class ParseIPs(object):
                 # Update prior record
                 matching_rec = matching_posts.next()
                 events = rec.get("events", []) + matching_rec.get("events", [])
-                posts.update_one({'first_ip': rec['first_ip'],
+                self.posts.update_one({'first_ip': rec['first_ip'],
                                  'last_ip': rec['last_ip'],
                                  'cidr': rec['cidr']},
                                 {"$set": {"events": events}})
@@ -73,7 +78,7 @@ class ParseIPs(object):
                 ))
             else:
                 # Insert new record
-                posts.insert_one(rec)
+                self.posts.insert_one(rec)
         print("All items loaded")
 
     def _parse_json_file(self, json_file):
@@ -137,7 +142,49 @@ class QueryIP(object):
         convert ip into <ip_int> with int(netaddr.IPAddress())
         {'first_ip': { $lte: <ip_int> } , 'last_ip': { $gte: <ip_int> } }
     """
-    pass
+    def __init__(self, **kwargs):
+        self.host = kwargs.get('host', 'localhost')
+        self.port = kwargs.get('port', 27017)
+        self.mongo = MongoClient(self.host, self.port)
+        self.db = self.mongo.IPTracker
+        self.posts = self.db.aws_ip_ranges
+
+    def query(self, ip_addr):
+        """Query for records related to a single IP address
+
+        Args:
+            ip_addr (str): String IP Address. Must be in format %d.%d.%d.%d
+
+        Returns:
+            events (list): List of dictionaries containg values resulting from
+                           querying the database
+        """
+
+        ip_as_int = int(IPAddress(ip_addr))
+        matching_posts = self.posts.find({'first_ip': { '$lte': ip_as_int },
+                                          'last_ip': { '$gte': ip_as_int }})
+        events = []
+        if matching_posts.count() > 0:
+            # Build record out
+            # consider reducing number of events using the "record_created"
+            # value
+            for post_data in matching_posts:
+                post_events = post_data.get("events", [])
+                for evt in post_events:
+                    events.append({
+                        "cidr": post_data.get("cidr", "N/A"),
+                        "service": evt.get("service", "N/A"),
+                        "region": evt.get("region", "N/A"),
+                        "record_created": evt.get(
+                            "record_created", "N/A").isoformat(),
+                        "record_collected": evt.get(
+                            "record_collected", "N/A").isoformat()
+                    })
+
+        else:
+            IPNotFound("IP Address {} not found in dataset".format(ip_addr))
+        return events
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -147,12 +194,30 @@ if __name__ == '__main__':
             __author__, __date__
         )
     )
-    parser.add_argument("JSON_FILE", help='Path to JSON file to parse',
+    subparsers = parser.add_subparsers(help="Select command to run",
+                                       dest="subparser")
+    # Ingest options
+    ingest_cmd = subparsers.add_parser("ingest", help="Read data from "
+                                       "collected JSON file into the databse.")
+    ingest_cmd.add_argument("JSON_FILE", help='Path to JSON file to parse',
                         type=argparse.FileType('r'))
+    # Query options
+    query_cmd = subparsers.add_parser("query", help="Query IP address from db")
+    query_cmd.add_argument("IP_ADDR", help="IP address to query for")
+    # General options
     parser.add_argument("--mongo-host", help="Host of MongoDB instance",
                         default='localhost')
     parser.add_argument("--mongo-port", help="Host of MongoDB instance",
                         default=27017, type=int)
     args = parser.parse_args()
 
-    parse_ips = ParseIPs(tqdm=True, host=args.mongo_host, port=args.mongo_port)
+    if args.subparser == 'ingest':
+        parse_ips = ParseIPs(tqdm=True, host=args.mongo_host,
+                             port=args.mongo_port)
+        parse_ips.parse(args.JSON_FILE)
+    elif args.subparser == 'query':
+        quip = QueryIP(host=args.mongo_host, port=args.mongo_port)
+        rset = quip.query(args.IP_ADDR)
+        from pprint import pprint
+        for entry in rset:
+            pprint(entry)
