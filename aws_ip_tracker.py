@@ -31,7 +31,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 """
 
 __author__ = "Chapin Bryce"
-__date__ = 20171002
+__date__ = 20171204
 __description__ = "Utility to read AWS IP Address mappings into MongoDB"
 
 
@@ -130,7 +130,7 @@ class QueryIP(object):
         self.db = self.mongo.IPTracker
         self.posts = self.db.aws_ip_ranges
 
-    def query(self, ip_addr):
+    def query(self, ip_addr, verbose=False):
         """Query for records related to a single IP address
 
         Args:
@@ -144,25 +144,61 @@ class QueryIP(object):
         ip_as_int = int(IPAddress(ip_addr))
         matching_posts = self.posts.find({'first_ip': { '$lte': ip_as_int },
                                           'last_ip': { '$gte': ip_as_int }})
-        events = []
+        all_events = []
         if matching_posts.count() > 0:
-            # TODO consider reducing number of events using "record_created"
             for post_data in matching_posts:
                 post_events = post_data.get("events", [])
-                for evt in post_events:
-                    events.append({
-                        "cidr": post_data.get("cidr", "N/A"),
-                        "service": evt.get("service", "N/A"),
-                        "region": evt.get("region", "N/A"),
-                        "record_created": evt.get(
-                            "record_created", "N/A").isoformat(),
-                        "record_collected": evt.get(
-                            "record_collected", "N/A").isoformat()
-                    })
+                if verbose:
+                    events = []
+                    for evt in post_events:
+                        events.append({
+                            "cidr": post_data.get("cidr", "N/A"),
+                            "service": evt.get("service", "N/A"),
+                            "region": evt.get("region", "N/A"),
+                            "record_created": evt.get(
+                                "record_created", "N/A").isoformat(),
+                            "record_collected": evt.get(
+                                "record_collected", "N/A").isoformat()
+                        })
+                    all_events += events
+                else:
+                    events = {}
+                    for evt in post_events:
+                        evt_id = "{}___{}___{}".format(
+                            post_data.get("cidr", "N/A"),
+                            evt.get("service", "N/A"),
+                            evt.get("region", "N/A"),
+                        )
+                        if evt_id not in events:
+                            events[evt_id] = {'store': [evt["record_created"]],
+                                              'comp': evt["record_collected"]}
+
+                        time_diff = evt["record_collected"] - \
+                                    events[evt_id]['comp']
+
+                        if time_diff.total_seconds() > 43200:
+                            # Add as a new event if > 12hrs apart
+                            events[evt_id]['store'].append(
+                                evt["record_created"])
+                        # Save prior date for comparison
+                        events[evt_id]['comp'] = evt["record_collected"]
+
+                    # Make this mess pretty...
+                    for evt_id, evt_val in events.items():
+                        _cidr, _service, _region = evt_id.split("___")
+                        for val in evt_val['store']:
+                            all_events.append(
+                                {'cidr': _cidr, 'service': _service,
+                                 'region': _region,
+                                 'record_created': val.isoformat(),
+                                 'record_last_collected':
+                                    evt_val['comp'].isoformat()
+                                }
+                            )
 
         else:
             IPNotFound("IP Address {} not found in dataset".format(ip_addr))
-        return events
+        return all_events
 
 
 if __name__ == '__main__':
