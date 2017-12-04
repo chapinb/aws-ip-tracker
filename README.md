@@ -1,5 +1,6 @@
-# AWS IP Address Tracker
-Code to parse AWS IP information, load it into MongoDB, and run queries against it.
+# AWS IP Address Tracker ![pylint Score](https://mperlet.github.io/pybadge/badges/8.72.svg)
+Code to parse AWS IP information, load it into MongoDB, and run queries
+against it.
 
 Uses data collected from https://ip-ranges.amazonaws.com/ip-ranges.json to
 gather data about the assignment of IP ranges to different regions and services
