@@ -1,8 +1,35 @@
+"""Utility to query MongoDB for stored AWS information"""
 import argparse
-from aws_ip_tracker import QueryIP
+import csv
 import json
 import sys
-import csv
+
+from aws_ip_tracker import QueryIP
+
+
+"""
+MIT License
+
+Copyright 2017 Chapin Bryce
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+  this software and associated documentation files (the "Software"), to deal in
+  the Software without restriction, including without limitation the rights to
+  use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+  of the Software, and to permit persons to whom the Software is furnished to
+  do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+"""
 
 __author__ = "Chapin Bryce"
 __date__ = 20171204
@@ -10,6 +37,16 @@ __description__ = "Utility to query MongoDB for stored AWS information"
 
 
 def main(mongo_host, mongo_port, ip_addr, output, output_fmt):
+    """Primary controller for query script.
+
+    Args:
+        mongo_host (str): IP address of mongo host
+        mongo_port (int): Port number for mongo host
+        ip_addr (str): String in the format of %d.%d.%d.%d
+        output (str): Path to write output to
+        output_fmt (str): Format to write output as
+
+    """
     quip = QueryIP(host=mongo_host, port=mongo_port)
     rset = quip.query(ip_addr, verbose=False)  # List of dicts
 
@@ -29,6 +66,7 @@ def main(mongo_host, mongo_port, ip_addr, output, output_fmt):
 
 
 def write_csv(open_file, rset):
+    """Controller to write results as csv"""
     csv_writer = csv.DictWriter(open_file,
                                 fieldnames=['cidr', 'record_created',
                                             'record_last_collected', 'region',
@@ -36,18 +74,23 @@ def write_csv(open_file, rset):
     csv_writer.writeheader()
     csv_writer.writerows(rset)
 
+
 def write_json(open_file, rset, lines=False):
+    """Controller to write results as json"""
     if lines:
         for entry in rset:
             open_file.write(json.dumps(entry)+'\n')
     else:
         open_file.write(json.dumps(rset))
 
+
 def write_txt(open_file, rset):
-    fmt = "{cidr:18} | {record_created:22} | {record_last_collected:22} | {region:10} | {service}\n"
+    """Controller to write results as txt"""
+    fmt = "{cidr:18} | {record_created:22} | {record_last_collected:22} | " \
+          "{region:10} | {service}\n"
     open_file.write(fmt.format(cidr='cidr', record_created='record_created',
-                     record_last_collected='record_last_collected',
-                     region='region', service='service'))
+                               record_last_collected='record_last_collected',
+                               region='region', service='service'))
     open_file.write("-"*91+'\n')
     for entry in rset:
         open_file.write(fmt.format(**entry))

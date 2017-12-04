@@ -1,9 +1,10 @@
+"Utility to read AWS IP Address mappings into and query from MongoDB."
 import argparse
 import datetime
 import json
 import os
 
-from netaddr import *
+from netaddr import IPNetwork, IPAddress
 from pymongo import MongoClient
 
 """
@@ -32,7 +33,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 
 __author__ = "Chapin Bryce"
 __date__ = 20171204
-__description__ = "Utility to read AWS IP Address mappings into MongoDB"
+__description__ = """Utility to read AWS IP Address mappings into and query
+                     from MongoDB"""
 
 
 class IPNotFound(Warning):
@@ -41,6 +43,8 @@ class IPNotFound(Warning):
 
 
 class ParseIPs(object):
+    """Parse IP information into MongoDB for ease of querying"""
+
     def __init__(self, **kwargs):
         self.host = kwargs.get('host', 'localhost')
         self.port = kwargs.get('port', 27017)
@@ -49,29 +53,33 @@ class ParseIPs(object):
         self.posts = self.db.aws_ip_ranges
 
     def parse(self, json_file):
+        """Parser of json file containing AWS IP information
+
+        Args:
+            json_file (file-obj): Open file
+        """
         # Include DB support here
         for rec in self._parse_json_file(json_file):
             matching_posts = self.posts.find({'first_ip': rec['first_ip'],
-                                         'last_ip': rec['last_ip'],
-                                         'cidr': rec['cidr']})
+                                              'last_ip': rec['last_ip'],
+                                              'cidr': rec['cidr']})
 
             if matching_posts.count() == 1:
                 # Update prior record
-                matching_rec = matching_posts.next()
-                # events = rec.get("events", []) + matching_rec.get("events", [])
                 new_event = rec.get("events", [])
                 if len(new_event) == 1:
                     self.posts.update_one({'first_ip': rec['first_ip'],
                                            'last_ip': rec['last_ip'],
                                            'cidr': rec['cidr']},
-                                           {"$addToSet": {
-                                               "events": new_event[0]}}
-                                          )
-                elif len(new_event) == 0:
+                                          {"$addToSet": {
+                                              "events": new_event[0]}}
+                                         )
+                elif not new_event:
                     continue
                 else:
                     self.posts.update_one(
-                        {'first_ip': rec['first_ip'], 'last_ip': rec['last_ip'],
+                        {'first_ip': rec['first_ip'],
+                         'last_ip': rec['last_ip'],
                          'cidr': rec['cidr']},
                         {"$addToSet": {"events": {"$each": new_event}}})
             elif matching_posts.count() > 1:
@@ -83,11 +91,12 @@ class ParseIPs(object):
                 self.posts.insert_one(rec)
         print("All items loaded")
 
-    def _parse_json_file(self, json_file):
+    @staticmethod
+    def _parse_json_file(json_file):
         """Parse json file into individual records for the database
 
         Args:
-            json_file: Open file-like object to turn into json data
+            json_file (file-obj): File containing valid json data
 
         """
         json_data = json.load(json_file)
@@ -123,6 +132,7 @@ class QueryIP(object):
         convert ip into <ip_int> with int(netaddr.IPAddress())
         {'first_ip': { $lte: <ip_int> } , 'last_ip': { $gte: <ip_int> } }
     """
+
     def __init__(self, **kwargs):
         self.host = kwargs.get('host', 'localhost')
         self.port = kwargs.get('port', 27017)
@@ -142,8 +152,8 @@ class QueryIP(object):
         """
 
         ip_as_int = int(IPAddress(ip_addr))
-        matching_posts = self.posts.find({'first_ip': { '$lte': ip_as_int },
-                                          'last_ip': { '$gte': ip_as_int }})
+        matching_posts = self.posts.find({'first_ip': {'$lte': ip_as_int},
+                                          'last_ip': {'$gte': ip_as_int}})
         all_events = []
         if matching_posts.count() > 0:
             for post_data in matching_posts:
@@ -174,7 +184,7 @@ class QueryIP(object):
                                               'comp': evt["record_collected"]}
 
                         time_diff = evt["record_collected"] - \
-                                    events[evt_id]['comp']
+                            events[evt_id]['comp']
 
                         if time_diff.total_seconds() > 43200:
                             # Add as a new event if > 12hrs apart
@@ -192,7 +202,7 @@ class QueryIP(object):
                                  'region': _region,
                                  'record_created': val.isoformat(),
                                  'record_last_collected':
-                                    evt_val['comp'].isoformat()
+                                     evt_val['comp'].isoformat()
                                 }
                             )
 
@@ -215,7 +225,7 @@ if __name__ == '__main__':
     ingest_cmd = subparsers.add_parser("ingest", help="Read data from "
                                        "collected JSON file into the databse.")
     ingest_cmd.add_argument("JSON_FILE", help='Path to JSON file to parse',
-                        type=argparse.FileType('r'))
+                            type=argparse.FileType('r'))
     # Query options
     query_cmd = subparsers.add_parser("query", help="Query IP address from db")
     query_cmd.add_argument("IP_ADDR", help="IP address to query for")
