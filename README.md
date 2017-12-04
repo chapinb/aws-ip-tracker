@@ -11,7 +11,7 @@ over time.
 # Installation
 
 1. Download or clone from GitHub and change into the code directory.
-2. Create a virtual environment. `virtualenv -p python3 venv3`
+2. Create a virtual environment. `virtualenv -p python3 venv3 && source venv3/bin/activate`
 3. Install dependencies. `pip install -r requirements.txt`
 
 # Usage
