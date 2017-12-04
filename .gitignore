@@ -2,4 +2,6 @@ json_files/
 venv/
 mongodb/
 *.pyc
-start-mongo.bat
+*.bat
+*.txt
+**/__pycache__/
