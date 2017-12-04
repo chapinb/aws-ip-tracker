@@ -5,7 +5,6 @@ import os
 
 from netaddr import *
 from pymongo import MongoClient
-from tqdm import tqdm
 
 """
 MIT License
@@ -43,7 +42,6 @@ class IPNotFound(Warning):
 
 class ParseIPs(object):
     def __init__(self, **kwargs):
-        self.tqdm = kwargs.get('tqdm', False)
         self.host = kwargs.get('host', 'localhost')
         self.port = kwargs.get('port', 27017)
         self.mongo = MongoClient(self.host, self.port)
@@ -52,13 +50,7 @@ class ParseIPs(object):
 
     def parse(self, json_file):
         # Include DB support here
-
-        records = self.parse_ips._parse_json_file(json_file)
-        if self.tqdm:
-            looper = tqdm(records)
-        else:
-            looper = records
-        for rec in looper:
+        for rec in self._parse_json_file(json_file):
             matching_posts = self.posts.find({'first_ip': rec['first_ip'],
                                          'last_ip': rec['last_ip'],
                                          'cidr': rec['cidr']})
@@ -66,16 +58,26 @@ class ParseIPs(object):
             if matching_posts.count() == 1:
                 # Update prior record
                 matching_rec = matching_posts.next()
-                events = rec.get("events", []) + matching_rec.get("events", [])
-                self.posts.update_one({'first_ip': rec['first_ip'],
-                                 'last_ip': rec['last_ip'],
-                                 'cidr': rec['cidr']},
-                                {"$set": {"events": events}})
+                # events = rec.get("events", []) + matching_rec.get("events", [])
+                new_event = rec.get("events", [])
+                if len(new_event) == 1:
+                    self.posts.update_one({'first_ip': rec['first_ip'],
+                                           'last_ip': rec['last_ip'],
+                                           'cidr': rec['cidr']},
+                                           {"$addToSet": {
+                                               "events": new_event[0]}}
+                                          )
+                elif len(new_event) == 0:
+                    continue
+                else:
+                    self.posts.update_one(
+                        {'first_ip': rec['first_ip'], 'last_ip': rec['last_ip'],
+                         'cidr': rec['cidr']},
+                        {"$addToSet": {"events": {"$each": new_event}}})
             elif matching_posts.count() > 1:
                 # Throw error, should not have more than 1...
                 raise Exception("Too many posts matching {} found".format(
-                    str(rec)
-                ))
+                    str(rec)))
             else:
                 # Insert new record
                 self.posts.insert_one(rec)
@@ -97,13 +99,7 @@ class ParseIPs(object):
             json_data.get("createDate"), "%Y-%m-%d-%H-%M-%S"
         )
 
-        if self.tqdm:
-            looper = tqdm(json_data.get("prefixes", []))
-        else:
-            looper = json_data.get("prefixes", [])
-
-        records = []
-        for prefix in looper:
+        for prefix in json_data.get("prefixes", []):
             event = {
                 "record_created": record_created,
                 "record_collected": collected_date,
@@ -111,16 +107,14 @@ class ParseIPs(object):
                 "service": prefix.get("service", "")
             }
             ip_net = IPNetwork(prefix.get("ip_prefix", ""))
-            records.append({
+            yield {
                 "first_ip": ip_net.first,
                 "last_ip": ip_net.last,
                 "cidr": prefix.get("ip_prefix", ""),
                 "events": [
                     event
                 ]
-            })
-
-        return records
+            }
 
 
 class QueryIP(object):
@@ -197,8 +191,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.subparser == 'ingest':
-        parse_ips = ParseIPs(tqdm=True, host=args.mongo_host,
-                             port=args.mongo_port)
+        parse_ips = ParseIPs(host=args.mongo_host, port=args.mongo_port)
         parse_ips.parse(args.JSON_FILE)
     elif args.subparser == 'query':
         quip = QueryIP(host=args.mongo_host, port=args.mongo_port)
