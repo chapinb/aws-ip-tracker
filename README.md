@@ -3,6 +3,8 @@
 Code to parse AWS IP information, load it into MongoDB, and run queries
 against it.
 
+This project is available as a web service at http://awsip.chapinb.com:8080
+
 Uses data collected from https://ip-ranges.amazonaws.com/ip-ranges.json to
 gather data about the assignment of IP ranges to different regions and services
 over time.
