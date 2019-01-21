@@ -7,10 +7,14 @@ import os
 from netaddr import IPNetwork, IPAddress
 from pymongo import MongoClient
 
-"""
+__author__ = "Chapin Bryce"
+__date__ = 20190121
+__description__ = """Utility to read AWS IP Address mappings into and query
+                     from MongoDB"""
+__license__ = """
 MIT License
 
-Copyright 2017 Chapin Bryce
+Copyright 2019 Chapin Bryce
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
   this software and associated documentation files (the "Software"), to deal in
@@ -31,26 +35,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
   SOFTWARE.
 """
 
-__author__ = "Chapin Bryce"
-__date__ = 20171204
-__description__ = """Utility to read AWS IP Address mappings into and query
-                     from MongoDB"""
-
 
 class IPNotFound(Warning):
     """Warning for when an IP address queried is not found"""
-    pass
 
 
-class ParseIPs(object):
-    """Parse IP information into MongoDB for ease of querying"""
-
+class DBObject():
+    """MongoDB Object"""
     def __init__(self, **kwargs):
         self.host = kwargs.get('host', 'localhost')
         self.port = kwargs.get('port', 27017)
         self.mongo = MongoClient(self.host, self.port)
-        self.db = self.mongo.IPTracker
-        self.posts = self.db.aws_ip_ranges
+        self.database = self.mongo.IPTracker
+        self.database = self.database.aws_ip_ranges
+
+
+class ParseIPs(DBObject):
+    """Parse IP information into MongoDB for ease of querying"""
 
     def parse(self, json_file):
         """Parser of json file containing AWS IP information
@@ -59,25 +60,26 @@ class ParseIPs(object):
             json_file (file-obj): Open file
         """
         # Include DB support here
-        for rec in self._parse_json_file(json_file):
-            matching_posts = self.posts.find({'first_ip': rec['first_ip'],
-                                              'last_ip': rec['last_ip'],
-                                              'cidr': rec['cidr']})
+        for rec in self.parse_json_file(json_file):
+            matching_posts = self.database.find(
+                {'first_ip': rec['first_ip'],
+                 'last_ip': rec['last_ip'],
+                 'cidr': rec['cidr']}
+            )
 
             if matching_posts.count() == 1:
                 # Update prior record
                 new_event = rec.get("events", [])
                 if len(new_event) == 1:
-                    self.posts.update_one({'first_ip': rec['first_ip'],
-                                           'last_ip': rec['last_ip'],
-                                           'cidr': rec['cidr']},
-                                          {"$addToSet": {
-                                              "events": new_event[0]}}
-                                         )
+                    self.database.update_one(
+                        {'first_ip': rec['first_ip'],
+                         'last_ip': rec['last_ip'], 'cidr': rec['cidr']},
+                        {"$addToSet": {"events": new_event[0]}}
+                    )
                 elif not new_event:
                     continue
                 else:
-                    self.posts.update_one(
+                    self.database.update_one(
                         {'first_ip': rec['first_ip'],
                          'last_ip': rec['last_ip'],
                          'cidr': rec['cidr']},
@@ -88,11 +90,11 @@ class ParseIPs(object):
                     str(rec)))
             else:
                 # Insert new record
-                self.posts.insert_one(rec)
+                self.database.insert_one(rec)
         print("All items loaded")
 
     @staticmethod
-    def _parse_json_file(json_file):
+    def parse_json_file(json_file):
         """Parse json file into individual records for the database
 
         Args:
@@ -126,21 +128,29 @@ class ParseIPs(object):
             }
 
 
-class QueryIP(object):
+class QueryIP(DBObject):
     """
     To Query IP:
         convert ip into <ip_int> with int(netaddr.IPAddress())
         {'first_ip': { $lte: <ip_int> } , 'last_ip': { $gte: <ip_int> } }
     """
 
-    def __init__(self, **kwargs):
-        self.host = kwargs.get('host', 'localhost')
-        self.port = kwargs.get('port', 27017)
-        self.mongo = MongoClient(self.host, self.port)
-        self.db = self.mongo.IPTracker
-        self.posts = self.db.aws_ip_ranges
+    def run_search(self, ip_addr):
+        """Run search against the MongoDB
 
-    def query(self, ip_addr, verbose=False):
+        Args:
+            ip_addr (str): Validated IP address string to search against
+                           the db
+
+        Returns:
+            List of results from MongoDB
+
+        """
+        ip_as_int = int(IPAddress(ip_addr))
+        return self.database.find({'first_ip': {'$lte': ip_as_int},
+                                   'last_ip': {'$gte': ip_as_int}})
+
+    def query(self, ip_addr, format_dates=False):
         """Query for records related to a single IP address
 
         Args:
@@ -151,60 +161,46 @@ class QueryIP(object):
                            querying the database
         """
 
-        ip_as_int = int(IPAddress(ip_addr))
-        matching_posts = self.posts.find({'first_ip': {'$lte': ip_as_int},
-                                          'last_ip': {'$gte': ip_as_int}})
+        matching_posts = self.run_search(ip_addr)
         all_events = []
         if matching_posts.count() > 0:
             for post_data in matching_posts:
-                post_events = post_data.get("events", [])
-                if verbose:
-                    events = []
-                    for evt in post_events:
-                        events.append({
-                            "cidr": post_data.get("cidr", "N/A"),
-                            "service": evt.get("service", "N/A"),
-                            "region": evt.get("region", "N/A"),
-                            "record_created": evt.get(
-                                "record_created", "N/A").isoformat(),
-                            "record_collected": evt.get(
-                                "record_collected", "N/A").isoformat()
-                        })
-                    all_events += events
-                else:
-                    events = {}
-                    for evt in post_events:
-                        evt_id = "{}___{}___{}".format(
-                            post_data.get("cidr", "N/A"),
-                            evt.get("service", "N/A"),
-                            evt.get("region", "N/A"),
-                        )
-                        if evt_id not in events:
-                            events[evt_id] = {'store': [evt["record_created"]],
-                                              'comp': evt["record_collected"]}
+                events = {}
+                for evt in post_data.get("events", []):
+                    evt_id = "{}___{}___{}".format(
+                        post_data.get("cidr", "N/A"),
+                        evt.get("service", "N/A"),
+                        evt.get("region", "N/A"),
+                    )
+                    # Keep it simple - grab min/max of collected
+                    if evt_id not in events:
+                        events[evt_id] = {'min': evt["record_collected"],
+                                          'max': evt["record_collected"]}
 
-                        time_diff = evt["record_collected"] - \
-                            events[evt_id]['comp']
+                    if events[evt_id]['min'] > evt["record_collected"]:
+                        events[evt_id]['min'] = evt["record_collected"]
 
-                        if time_diff.total_seconds() > 43200:
-                            # Add as a new event if > 12hrs apart
-                            events[evt_id]['store'].append(
-                                evt["record_created"])
-                        # Save prior date for comparison
-                        events[evt_id]['comp'] = evt["record_collected"]
+                    if events[evt_id]['max'] < evt["record_collected"]:
+                        events[evt_id]['max'] = evt["record_collected"]
 
-                    # Make this mess pretty...
-                    for evt_id, evt_val in events.items():
-                        _cidr, _service, _region = evt_id.split("___")
-                        for val in evt_val['store']:
-                            all_events.append(
-                                {'cidr': _cidr, 'service': _service,
-                                 'region': _region,
-                                 'record_created': val.isoformat(),
-                                 'record_last_collected':
-                                     evt_val['comp'].isoformat()
-                                }
-                            )
+                # Make this mess pretty...
+                for evt_id, evt_val in events.items():
+                    # Format Dates
+                    fcollected = evt_val['min'].isoformat()
+                    lcollected = evt_val['max'].isoformat()
+                    if format_dates:
+                        fcollected = fcollected.replace('T', ' ')
+                        lcollected = lcollected.replace('T', ' ')
+
+                    all_events.append(
+                        {
+                            'cidr': evt_id.split("___")[0],
+                            'service': evt_id.split("___")[1],
+                            'region': evt_id.split("___")[2],
+                            'first_collected': fcollected,
+                            'last_collected': lcollected
+                        }
+                    )
 
         else:
             IPNotFound("IP Address {} not found in dataset".format(ip_addr))
@@ -212,6 +208,7 @@ class QueryIP(object):
 
 
 if __name__ == '__main__':
+    # pylint: disable=C0103
     parser = argparse.ArgumentParser(
         description=__description__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -227,7 +224,8 @@ if __name__ == '__main__':
     ingest_cmd.add_argument("JSON_FILE", help='Path to JSON file to parse',
                             type=argparse.FileType('r'))
     # Query options
-    query_cmd = subparsers.add_parser("query", help="Query IP address from db")
+    query_cmd = subparsers.add_parser(
+        "query", help="Query IP address from db")
     query_cmd.add_argument("IP_ADDR", help="IP address to query for")
     # General options
     parser.add_argument("--mongo-host", help="Host of MongoDB instance",
