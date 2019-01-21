@@ -6,11 +6,14 @@ import sys
 
 from aws_ip_tracker import QueryIP
 
+__author__ = "Chapin Bryce"
+__date__ = 20190121
+__description__ = "Utility to query MongoDB for stored AWS information"
 
 """
 MIT License
 
-Copyright 2017 Chapin Bryce
+Copyright 2019 Chapin Bryce
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
   this software and associated documentation files (the "Software"), to deal in
@@ -30,11 +33,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 """
-
-__author__ = "Chapin Bryce"
-__date__ = 20171204
-__description__ = "Utility to query MongoDB for stored AWS information"
-
 
 def main(mongo_host, mongo_port, ip_addr, output, output_fmt):
     """Primary controller for query script.
