@@ -48,7 +48,7 @@ def main(mongo_host, mongo_port, ip_addr, output, output_fmt):
 
     """
     quip = QueryIP(host=mongo_host, port=mongo_port)
-    rset = quip.query(ip_addr, verbose=False)  # List of dicts
+    rset = quip.query(ip_addr, format_dates=True)  # List of dicts
 
     if output == 'stdout':
         open_file = sys.stdout
@@ -68,8 +68,8 @@ def main(mongo_host, mongo_port, ip_addr, output, output_fmt):
 def write_csv(open_file, rset):
     """Controller to write results as csv"""
     csv_writer = csv.DictWriter(open_file,
-                                fieldnames=['cidr', 'record_created',
-                                            'record_last_collected', 'region',
+                                fieldnames=['cidr', 'first_collected',
+                                            'last_collected', 'region',
                                             'service'])
     csv_writer.writeheader()
     csv_writer.writerows(rset)
@@ -86,10 +86,10 @@ def write_json(open_file, rset, lines=False):
 
 def write_txt(open_file, rset):
     """Controller to write results as txt"""
-    fmt = "{cidr:18} | {record_created:22} | {record_last_collected:22} | " \
+    fmt = "{cidr:18} | {first_collected:22} | {last_collected:22} | " \
           "{region:10} | {service}\n"
-    open_file.write(fmt.format(cidr='cidr', record_created='record_created',
-                               record_last_collected='record_last_collected',
+    open_file.write(fmt.format(cidr='cidr', first_collected='first_collected',
+                               last_collected='last_collected',
                                region='region', service='service'))
     open_file.write("-"*91+'\n')
     for entry in rset:
